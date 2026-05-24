@@ -97,7 +97,7 @@ func main() {
 	flag.BoolVar(&homeDisableClusterDiscovery, "home-disable-cluster-discovery", false, "Disable Home CLUSTER NODES discovery and keep using the configured -home-jwt address")
 	flag.BoolVar(&tuiMode, "tui", false, "Start with terminal management UI")
 	flag.BoolVar(&standalone, "standalone", false, "In TUI mode, start an embedded local server")
-	flag.BoolVar(&localModel, "local-model", false, "Use embedded model catalog only, skip remote model fetching")
+	flag.BoolVar(&localModel, "local-model", true, "Use embedded model catalog only, skip remote model fetching")
 
 	flag.CommandLine.Usage = func() {
 		out := flag.CommandLine.Output()
