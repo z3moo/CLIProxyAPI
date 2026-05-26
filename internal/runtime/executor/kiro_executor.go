@@ -535,7 +535,6 @@ func (s *kiroStreamState) encodeDelta(delta map[string]any) []byte {
 	body, _ := jsonMarshal(chunk)
 	return append(append([]byte("data: "), body...), '\n', '\n')
 }
-
 func (s *kiroStreamState) publishExplicitUsage() {
 	if s == nil || s.reporter == nil || s.usagePublished {
 		return
