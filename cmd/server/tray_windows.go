@@ -84,46 +84,39 @@ func replayRingTo(w io.Writer) {
 
 func showTrayConsole() {
 	trayMu.Lock()
-	if trayConsoleOn {
-		trayMu.Unlock()
+	defer trayMu.Unlock()
+
+	if !hasConsole() {
+		if !allocFreshConsole("CLIProxyAPI Console") {
+			log.Warn("tray: failed to allocate console")
+			return
+		}
+		// allocFreshConsole rebinds os.Stdout/os.Stderr to CONOUT$.
+		trayConsoleFD = os.Stdout
+		go replayRingTo(os.Stdout)
+	} else {
 		setConsoleWindowVisible(true)
-		return
-	}
-	trayMu.Unlock()
-
-	if !allocFreshConsole("CLIProxyAPI Console") {
-		log.Warn("tray: failed to allocate console")
-		return
 	}
 
-	// allocFreshConsole rebinds os.Stdout/os.Stderr to CONOUT$.
-	out := os.Stdout
-
-	trayMu.Lock()
-	trayConsoleFD = out
 	trayConsoleOn = true
 	if mToggleRef != nil {
 		mToggleRef.SetTitle("Hide Console")
 	}
-	trayMu.Unlock()
-
-	go replayRingTo(out)
 }
 
 func hideTrayConsole() {
 	trayMu.Lock()
-	if !trayConsoleOn {
-		trayMu.Unlock()
-		return
+	defer trayMu.Unlock()
+
+	// Just hide the window; keep the console attached so logs still go to
+	// the buffered fd and the next Show is instant.
+	if hasConsole() {
+		setConsoleWindowVisible(false)
 	}
-	trayConsoleFD = nil
 	trayConsoleOn = false
 	if mToggleRef != nil {
 		mToggleRef.SetTitle("Show Console")
 	}
-	trayMu.Unlock()
-
-	freeAttachedConsole()
 }
 
 // runTrayMode starts the proxy server in the background and shows a system
