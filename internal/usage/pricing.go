@@ -13,6 +13,8 @@ import (
 	"regexp"
 	"strings"
 	"sync"
+
+	"github.com/router-for-me/CLIProxyAPI/v7/internal/kiromodel"
 )
 
 // Pricing holds the four-rate cost row for a single model.
@@ -292,14 +294,22 @@ func resolvePricing(provider, model string) (Pricing, bool) {
 		}
 	}
 	base := stripModelPrefix(model)
+	canonicalBase := kiromodel.UpstreamID(base)
+	canonicalModel := kiromodel.UpstreamID(model)
+	if p, ok := modelPricing[canonicalBase]; ok {
+		return p, true
+	}
 	if p, ok := modelPricing[base]; ok {
+		return p, true
+	}
+	if p, ok := modelPricing[canonicalModel]; ok {
 		return p, true
 	}
 	if p, ok := modelPricing[model]; ok {
 		return p, true
 	}
 	for _, rule := range patternPricing {
-		if rule.regex.MatchString(base) || rule.regex.MatchString(model) {
+		if rule.regex.MatchString(canonicalBase) || rule.regex.MatchString(base) || rule.regex.MatchString(canonicalModel) || rule.regex.MatchString(model) {
 			return rule.pricing, true
 		}
 	}

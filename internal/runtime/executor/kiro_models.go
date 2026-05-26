@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/router-for-me/CLIProxyAPI/v7/internal/kiromodel"
 	"github.com/router-for-me/CLIProxyAPI/v7/internal/registry"
 	"github.com/router-for-me/CLIProxyAPI/v7/internal/runtime/executor/helps"
 	cliproxyauth "github.com/router-for-me/CLIProxyAPI/v7/sdk/cliproxy/auth"
@@ -236,11 +237,7 @@ func parseKiroListAvailableModels(body []byte) ([]*registry.ModelInfo, []*kiroMo
 		if strings.HasSuffix(id, kiroThinkingSuffix) {
 			id = strings.TrimSuffix(id, kiroThinkingSuffix)
 		}
-		display := strings.TrimSpace(m.ModelName)
-		if display == "" {
-			display = id
-		}
-		display = "Kiro " + display
+		display := kiromodel.DisplayName(id)
 		if m.RateMultiplier > 0 && m.RateMultiplier != 1.0 {
 			display = fmt.Sprintf("%s (%.1fx credit)", display, m.RateMultiplier)
 		}
@@ -277,7 +274,8 @@ func parseKiroListAvailableModels(body []byte) ([]*registry.ModelInfo, []*kiroMo
 		}
 
 		for _, v := range variants {
-			modelID := "kr/" + id + v.suffix
+			upstreamVariant := id + v.suffix
+			modelID := "kr/" + kiromodel.PublicID(upstreamVariant)
 			info := &registry.ModelInfo{
 				ID:                  modelID,
 				Object:              "model",
@@ -286,7 +284,7 @@ func parseKiroListAvailableModels(body []byte) ([]*registry.ModelInfo, []*kiroMo
 				Type:                "kiro",
 				DisplayName:         display + v.label,
 				Name:                modelID,
-				Description:         strings.TrimSpace(m.Description),
+				Description:         kiromodel.Description(upstreamVariant),
 				ContextLength:       ctx,
 				MaxCompletionTokens: 32000,
 			}

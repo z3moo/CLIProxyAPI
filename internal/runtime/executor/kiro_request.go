@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/google/uuid"
+	"github.com/router-for-me/CLIProxyAPI/v7/internal/kiromodel"
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
 )
@@ -69,6 +70,7 @@ func resolveKiroModel(model string) kiroResolvedModel {
 		out.thinking = true
 		out.upstream = strings.TrimSuffix(out.upstream, kiroThinkingSuffix)
 	}
+	out.upstream = kiromodel.UpstreamID(out.upstream)
 	return out
 }
 

@@ -4,6 +4,8 @@ package registry
 
 import (
 	"strings"
+
+	"github.com/router-for-me/CLIProxyAPI/v7/internal/kiromodel"
 )
 
 const (
@@ -87,11 +89,14 @@ func GetKiroModels() []*ModelInfo {
 
 func withKiroModelPrefix(models []*ModelInfo) []*ModelInfo {
 	for _, model := range models {
-		if model == nil || model.ID == "" || strings.HasPrefix(model.ID, "kr/") {
+		if model == nil || model.ID == "" {
 			continue
 		}
-		model.ID = "kr/" + strings.TrimPrefix(model.ID, "kiro/")
+		upstream := strings.TrimPrefix(strings.TrimPrefix(model.ID, "kr/"), "kiro/")
+		model.ID = "kr/" + kiromodel.PublicID(upstream)
 		model.Name = model.ID
+		model.DisplayName = kiromodel.DisplayName(upstream)
+		model.Description = kiromodel.Description(upstream)
 	}
 	return models
 }
