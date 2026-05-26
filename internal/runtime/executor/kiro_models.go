@@ -277,14 +277,15 @@ func parseKiroListAvailableModels(body []byte) ([]*registry.ModelInfo, []*kiroMo
 		}
 
 		for _, v := range variants {
+			modelID := "kr/" + id + v.suffix
 			info := &registry.ModelInfo{
-				ID:                  "kr/" + id + v.suffix,
+				ID:                  modelID,
 				Object:              "model",
 				Created:             now,
 				OwnedBy:             "kiro",
 				Type:                "kiro",
 				DisplayName:         display + v.label,
-				Name:                "kr/" + id + v.suffix,
+				Name:                modelID,
 				Description:         strings.TrimSpace(m.Description),
 				ContextLength:       ctx,
 				MaxCompletionTokens: 32000,
