@@ -34,6 +34,7 @@ import (
 	"github.com/router-for-me/CLIProxyAPI/v7/internal/logging"
 	"github.com/router-for-me/CLIProxyAPI/v7/internal/managementasset"
 	"github.com/router-for-me/CLIProxyAPI/v7/internal/redisqueue"
+	internalusage "github.com/router-for-me/CLIProxyAPI/v7/internal/usage"
 	"github.com/router-for-me/CLIProxyAPI/v7/internal/util"
 	sdkaccess "github.com/router-for-me/CLIProxyAPI/v7/sdk/access"
 	"github.com/router-for-me/CLIProxyAPI/v7/sdk/api/handlers"
@@ -372,6 +373,7 @@ func (s *Server) setupRoutes() {
 	s.engine.HEAD("/healthz", healthzHandler)
 
 	s.engine.GET("/management.html", s.serveManagementControlPanel)
+	s.engine.GET("/v0/usage-stats", s.serveLocalUsageStats)
 	openaiHandlers := openai.NewOpenAIAPIHandler(s.handlers)
 	geminiHandlers := gemini.NewGeminiAPIHandler(s.handlers)
 	geminiCLIHandlers := gemini.NewGeminiCLIAPIHandler(s.handlers)
@@ -733,6 +735,62 @@ func (s *Server) managementAvailabilityMiddleware() gin.HandlerFunc {
 	}
 }
 
+func (s *Server) serveLocalUsageStats(c *gin.Context) {
+	clientIP := c.ClientIP()
+	if clientIP != "127.0.0.1" && clientIP != "::1" {
+		c.JSON(http.StatusForbidden, gin.H{"error": "usage stats are available locally only"})
+		return
+	}
+	snap := internalusage.Default().Snapshot(c.Query("period"))
+	redactUsageSnapshot(&snap)
+	sort.SliceStable(snap.ByProvider, func(i, j int) bool { return usageDimensionLess(snap.ByProvider[i], snap.ByProvider[j]) })
+	sort.SliceStable(snap.ByModel, func(i, j int) bool { return usageDimensionLess(snap.ByModel[i], snap.ByModel[j]) })
+	sort.SliceStable(snap.ByAPIKey, func(i, j int) bool { return usageDimensionLess(snap.ByAPIKey[i], snap.ByAPIKey[j]) })
+	sort.SliceStable(snap.ByAuth, func(i, j int) bool { return usageDimensionLess(snap.ByAuth[i], snap.ByAuth[j]) })
+	c.JSON(http.StatusOK, snap)
+}
+
+func usageDimensionLess(a, b internalusage.DimensionRecord) bool {
+	if a.Requests != b.Requests {
+		return a.Requests > b.Requests
+	}
+	if a.Cost != b.Cost {
+		return a.Cost > b.Cost
+	}
+	return a.Model < b.Model
+}
+
+func redactUsageSnapshot(snap *internalusage.Snapshot) {
+	if snap == nil {
+		return
+	}
+	redactRows := func(rows []internalusage.DimensionRecord) {
+		for i := range rows {
+			rows[i].APIKey = redactSecret(rows[i].APIKey)
+			rows[i].AuthID = redactSecret(rows[i].AuthID)
+		}
+	}
+	redactRows(snap.ByProvider)
+	redactRows(snap.ByModel)
+	redactRows(snap.ByAPIKey)
+	redactRows(snap.ByAuth)
+	for i := range snap.RecentRequests {
+		snap.RecentRequests[i].APIKey = redactSecret(snap.RecentRequests[i].APIKey)
+		snap.RecentRequests[i].AuthID = redactSecret(snap.RecentRequests[i].AuthID)
+	}
+}
+
+func redactSecret(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return ""
+	}
+	if len(value) <= 8 {
+		return "***"
+	}
+	return value[:4] + "..." + value[len(value)-4:]
+}
+
 func (s *Server) serveManagementControlPanel(c *gin.Context) {
 	cfg := s.cfg
 	if cfg == nil || cfg.Home.Enabled || cfg.RemoteManagement.DisableControlPanel {
@@ -760,7 +818,13 @@ func (s *Server) serveManagementControlPanel(c *gin.Context) {
 		}
 	}
 
-	c.File(filePath)
+	body, errRead := os.ReadFile(filePath)
+	if errRead != nil {
+		log.WithError(errRead).Error("failed to read management control panel asset")
+		c.AbortWithStatus(http.StatusInternalServerError)
+		return
+	}
+	c.Data(http.StatusOK, "text/html; charset=utf-8", injectLocalUsageTab(body))
 }
 
 func (s *Server) enableKeepAlive(timeout time.Duration, onTimeout func()) {
