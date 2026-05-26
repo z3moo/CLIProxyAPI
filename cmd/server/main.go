@@ -99,7 +99,7 @@ func main() {
 	flag.BoolVar(&tuiMode, "tui", false, "Start with terminal management UI")
 	flag.BoolVar(&standalone, "standalone", false, "In TUI mode, start an embedded local server")
 	flag.BoolVar(&localModel, "local-model", true, "Use embedded model catalog only, skip remote model fetching")
-	flag.BoolVar(&trayMode, "tray", false, "Run minimized to the Windows system tray (left-click toggles console, right-click for menu)")
+	flag.BoolVar(&trayMode, "tray", defaultTrayMode(), "Run minimized to the Windows system tray (default true on Windows). Use --tray=false for a foreground console.")
 
 	flag.CommandLine.Usage = func() {
 		out := flag.CommandLine.Output()

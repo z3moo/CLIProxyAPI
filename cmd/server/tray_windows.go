@@ -19,6 +19,10 @@ import (
 //go:embed tray_icon.ico
 var trayIconData []byte
 
+// defaultTrayMode is the default value for the --tray flag on Windows: true,
+// so launching the exe with no arguments drops to the tray.
+func defaultTrayMode() bool { return true }
+
 const (
 	swHide = 0
 	swShow = 5
