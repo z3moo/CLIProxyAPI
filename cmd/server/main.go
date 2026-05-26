@@ -77,6 +77,7 @@ func main() {
 	var tuiMode bool
 	var standalone bool
 	var localModel bool
+	var trayMode bool
 
 	// Define command-line flags for different operation modes.
 	flag.BoolVar(&login, "login", false, "Login Google Account")
@@ -98,6 +99,7 @@ func main() {
 	flag.BoolVar(&tuiMode, "tui", false, "Start with terminal management UI")
 	flag.BoolVar(&standalone, "standalone", false, "In TUI mode, start an embedded local server")
 	flag.BoolVar(&localModel, "local-model", true, "Use embedded model catalog only, skip remote model fetching")
+	flag.BoolVar(&trayMode, "tray", false, "Run minimized to the Windows system tray (left-click toggles console, right-click for menu)")
 
 	flag.CommandLine.Usage = func() {
 		out := flag.CommandLine.Output()
@@ -648,7 +650,11 @@ func main() {
 			} else if cfg.Home.Enabled {
 				log.Info("Home mode: remote model updates disabled")
 			}
-			cmd.StartService(cfg, configFilePath, password)
+			if trayMode {
+				runTrayMode(cfg, configFilePath, password)
+			} else {
+				cmd.StartService(cfg, configFilePath, password)
+			}
 		}
 	}
 }
