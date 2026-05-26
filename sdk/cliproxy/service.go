@@ -17,6 +17,7 @@ import (
 	"github.com/router-for-me/CLIProxyAPI/v7/internal/redisqueue"
 	"github.com/router-for-me/CLIProxyAPI/v7/internal/registry"
 	"github.com/router-for-me/CLIProxyAPI/v7/internal/runtime/executor"
+	internalusage "github.com/router-for-me/CLIProxyAPI/v7/internal/usage"
 	"github.com/router-for-me/CLIProxyAPI/v7/internal/util"
 	"github.com/router-for-me/CLIProxyAPI/v7/internal/watcher"
 	"github.com/router-for-me/CLIProxyAPI/v7/internal/watcher/diff"
@@ -95,6 +96,12 @@ type Service struct {
 
 	// wsGateway manages websocket Gemini providers.
 	wsGateway *wsrelay.Manager
+
+	// kiroExecutor is the singleton Kiro executor used for live model + quota refresh.
+	kiroExecutor *executor.KiroExecutor
+
+	// kiroRefresher walks Kiro auths periodically to keep models + quota fresh.
+	kiroRefresher *executor.KiroRefresher
 
 	homeClient *home.Client
 	homeCancel context.CancelFunc
@@ -434,6 +441,15 @@ func (s *Service) ensureExecutorsForAuthWithMode(a *coreauth.Auth, forceReplace 
 		s.coreManager.RegisterExecutor(executor.NewClaudeExecutor(s.cfg))
 	case "kimi":
 		s.coreManager.RegisterExecutor(executor.NewKimiExecutor(s.cfg))
+	case "kiro", "kiro-aws", "kiro-social":
+		if s.kiroExecutor == nil {
+			s.kiroExecutor = executor.NewKiroExecutor(s.cfg)
+		}
+		s.coreManager.RegisterExecutor(s.kiroExecutor)
+		s.ensureKiroRefresher()
+		if s.kiroRefresher != nil {
+			s.kiroRefresher.Trigger()
+		}
 	case "xai":
 		s.coreManager.RegisterExecutor(executor.NewXAIExecutor(s.cfg))
 	default:
@@ -592,7 +608,42 @@ func (s *Service) registerHomeExecutors() {
 	s.coreManager.RegisterExecutor(executor.NewAIStudioExecutor(s.cfg, "", s.wsGateway))
 	s.coreManager.RegisterExecutor(executor.NewAntigravityExecutor(s.cfg))
 	s.coreManager.RegisterExecutor(executor.NewKimiExecutor(s.cfg))
+	if s.kiroExecutor == nil {
+		s.kiroExecutor = executor.NewKiroExecutor(s.cfg)
+	}
+	s.coreManager.RegisterExecutor(s.kiroExecutor)
+	s.ensureKiroRefresher()
 	s.coreManager.RegisterExecutor(executor.NewOpenAICompatExecutor("openai-compatibility", s.cfg))
+}
+
+// ensureKiroRefresher constructs the Kiro background refresher (live models +
+// quota auto-refresh) once and binds it to the running auth manager + global
+// model registry. Idempotent.
+func (s *Service) ensureKiroRefresher() {
+	if s == nil || s.kiroRefresher != nil || s.kiroExecutor == nil || s.coreManager == nil {
+		return
+	}
+	lister := func() []*coreauth.Auth {
+		if s.coreManager == nil {
+			return nil
+		}
+		return s.coreManager.List()
+	}
+	registrar := kiroModelRegistryAdapter{}
+	s.kiroRefresher = executor.NewKiroRefresher(s.kiroExecutor, lister, registrar)
+}
+
+// kiroModelRegistryAdapter wires the executor refresher to the global model
+// registry. Splitting it out keeps internal/runtime/executor decoupled from
+// sdk/cliproxy.
+type kiroModelRegistryAdapter struct{}
+
+func (kiroModelRegistryAdapter) RegisterClient(authID, providerKey string, models []*registry.ModelInfo) {
+	GlobalModelRegistry().RegisterClient(authID, providerKey, models)
+}
+
+func (kiroModelRegistryAdapter) UnregisterClient(authID string) {
+	GlobalModelRegistry().UnregisterClient(authID)
 }
 
 func (s *Service) applyHomeOverlay(remoteCfg *config.Config) {
@@ -759,6 +810,13 @@ func (s *Service) Run(ctx context.Context) error {
 	}
 
 	usage.StartDefault(ctx)
+	// Initialize the in-process usage aggregator (registers as a usage plugin
+	// and persists snapshots under AuthDir/usage-stats.json).
+	if s.cfg != nil {
+		internalusage.Default().Configure(s.cfg.AuthDir)
+	} else {
+		internalusage.Default()
+	}
 	homeEnabled := s.cfg != nil && s.cfg.Home.Enabled
 	if homeEnabled {
 		forceHomeRuntimeConfig(s.cfg)
@@ -784,6 +842,10 @@ func (s *Service) Run(ctx context.Context) error {
 	if s.coreManager != nil && !homeEnabled {
 		if errLoad := s.coreManager.Load(ctx); errLoad != nil {
 			log.Warnf("failed to load auth store: %v", errLoad)
+		} else {
+			for _, auth := range s.coreManager.List() {
+				s.refreshModelRegistrationForAuth(auth)
+			}
 		}
 	}
 
@@ -935,6 +997,12 @@ func (s *Service) Run(ctx context.Context) error {
 		log.Infof("core auth auto-refresh started (interval=%s)", interval)
 	}
 
+	// Kick off Kiro live model + quota refresher (runs in its own goroutine).
+	if s.kiroRefresher != nil {
+		s.kiroRefresher.Start(context.Background())
+		log.Info("kiro auto-refresh started (models + quota)")
+	}
+
 	select {
 	case <-ctx.Done():
 		log.Debug("service context cancelled, shutting down...")
@@ -981,6 +1049,9 @@ func (s *Service) Shutdown(ctx context.Context) error {
 		if s.coreManager != nil {
 			s.coreManager.StopAutoRefresh()
 		}
+		if s.kiroRefresher != nil {
+			s.kiroRefresher.Stop()
+		}
 		if s.watcher != nil {
 			if err := s.watcher.Stop(); err != nil {
 				log.Errorf("failed to stop file watcher: %v", err)
@@ -1021,6 +1092,7 @@ func (s *Service) Shutdown(ctx context.Context) error {
 		}
 
 		usage.StopDefault()
+		internalusage.Default().Stop()
 	})
 	return shutdownErr
 }
@@ -1158,6 +1230,9 @@ func (s *Service) registerModelsForAuth(a *coreauth.Auth) {
 		models = applyExcludedModels(models, excluded)
 	case "kimi":
 		models = registry.GetKimiModels()
+		models = applyExcludedModels(models, excluded)
+	case "kiro", "kiro-aws", "kiro-social":
+		models = registry.GetKiroModels()
 		models = applyExcludedModels(models, excluded)
 	case "xai":
 		models = registry.GetXAIModels()

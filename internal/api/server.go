@@ -596,12 +596,17 @@ func (s *Server) registerManagementRoutes() {
 		mgmt.PUT("/quota-exceeded/switch-preview-model", s.mgmt.PutSwitchPreviewModel)
 		mgmt.PATCH("/quota-exceeded/switch-preview-model", s.mgmt.PutSwitchPreviewModel)
 
+		mgmt.GET("/quota/kiro", s.mgmt.GetKiroQuota)
+		mgmt.POST("/quota/purge-bad-credentials", s.mgmt.PurgeBadCredentials)
+
 		mgmt.GET("/api-keys", s.mgmt.GetAPIKeys)
 		mgmt.PUT("/api-keys", s.mgmt.PutAPIKeys)
 		mgmt.PATCH("/api-keys", s.mgmt.PatchAPIKeys)
 		mgmt.DELETE("/api-keys", s.mgmt.DeleteAPIKeys)
 		mgmt.GET("/api-key-usage", s.mgmt.GetAPIKeyUsage)
 		mgmt.GET("/usage-queue", s.mgmt.GetUsageQueue)
+		mgmt.GET("/usage-stats", s.mgmt.GetUsageStats)
+		mgmt.POST("/usage-stats/reset", s.mgmt.ResetUsageStats)
 
 		mgmt.GET("/gemini-api-key", s.mgmt.GetGeminiKeys)
 		mgmt.PUT("/gemini-api-key", s.mgmt.PutGeminiKeys)

@@ -496,12 +496,23 @@ func normalizeProviderKeys(providers []string) []string {
 
 // containsProvider reports whether provider is present in the normalized provider list.
 func containsProvider(providers []string, provider string) bool {
+	provider = schedulerProviderKey(provider)
 	for _, candidate := range providers {
-		if candidate == provider {
+		if schedulerProviderKey(candidate) == provider {
 			return true
 		}
 	}
 	return false
+}
+
+func schedulerProviderKey(provider string) string {
+	provider = strings.ToLower(strings.TrimSpace(provider))
+	switch provider {
+	case "kiro-aws", "kiro-social":
+		return "kiro"
+	default:
+		return provider
+	}
 }
 
 // upsertAuthLocked updates one auth in-place while the scheduler mutex is held.
@@ -510,7 +521,7 @@ func (s *authScheduler) upsertAuthLocked(auth *Auth, now time.Time) {
 		return
 	}
 	authID := strings.TrimSpace(auth.ID)
-	providerKey := strings.ToLower(strings.TrimSpace(auth.Provider))
+	providerKey := schedulerProviderKey(auth.Provider)
 	if authID == "" || providerKey == "" || auth.Disabled {
 		s.removeAuthLocked(authID)
 		return
@@ -557,7 +568,7 @@ func (s *authScheduler) ensureProviderLocked(providerKey string) *providerSchedu
 
 // buildScheduledAuthMeta extracts the scheduling metadata needed for shard bookkeeping.
 func buildScheduledAuthMeta(auth *Auth) *scheduledAuthMeta {
-	providerKey := strings.ToLower(strings.TrimSpace(auth.Provider))
+	providerKey := schedulerProviderKey(auth.Provider)
 	virtualParent := ""
 	if auth.Attributes != nil {
 		virtualParent = strings.TrimSpace(auth.Attributes["gemini_virtual_parent"])

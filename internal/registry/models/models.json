@@ -1987,6 +1987,142 @@
       }
     }
   ],
+  "kiro": [
+    {
+      "id": "auto",
+      "object": "model",
+      "created": 1735689600,
+      "owned_by": "kiro",
+      "type": "kiro",
+      "display_name": "Kiro Auto",
+      "description": "Kiro auto-routing — upstream selects the underlying model.",
+      "context_length": 200000,
+      "max_completion_tokens": 32000
+    },
+    {
+      "id": "claude-opus-4.7",
+      "object": "model",
+      "created": 1735689600,
+      "owned_by": "kiro",
+      "type": "kiro",
+      "display_name": "Kiro Claude Opus 4.7",
+      "description": "Anthropic Claude Opus 4.7 served via Kiro / AWS CodeWhisperer.",
+      "context_length": 200000,
+      "max_completion_tokens": 32000
+    },
+    {
+      "id": "claude-opus-4.7-thinking",
+      "object": "model",
+      "created": 1735689600,
+      "owned_by": "kiro",
+      "type": "kiro",
+      "display_name": "Kiro Claude Opus 4.7 (Thinking)",
+      "description": "Claude Opus 4.7 with Kiro reasoning enabled (thinking_mode injected).",
+      "context_length": 200000,
+      "max_completion_tokens": 32000,
+      "thinking": {
+        "min": 1024,
+        "max": 32000,
+        "zero_allowed": true,
+        "dynamic_allowed": true
+      }
+    },
+    {
+      "id": "claude-opus-4.7-agentic",
+      "object": "model",
+      "created": 1735689600,
+      "owned_by": "kiro",
+      "type": "kiro",
+      "display_name": "Kiro Claude Opus 4.7 (Agentic)",
+      "description": "Claude Opus 4.7 with the chunked-write agentic system prompt.",
+      "context_length": 200000,
+      "max_completion_tokens": 32000
+    },
+    {
+      "id": "claude-opus-4.7-thinking-agentic",
+      "object": "model",
+      "created": 1735689600,
+      "owned_by": "kiro",
+      "type": "kiro",
+      "display_name": "Kiro Claude Opus 4.7 (Thinking + Agentic)",
+      "description": "Claude Opus 4.7 with both reasoning and the chunked-write agentic prompt.",
+      "context_length": 200000,
+      "max_completion_tokens": 32000,
+      "thinking": {
+        "min": 1024,
+        "max": 32000,
+        "zero_allowed": true,
+        "dynamic_allowed": true
+      }
+    },
+    {
+      "id": "claude-sonnet-4-5",
+      "object": "model",
+      "created": 1735689600,
+      "owned_by": "kiro",
+      "type": "kiro",
+      "display_name": "Kiro Claude Sonnet 4.5",
+      "description": "Anthropic Claude Sonnet 4.5 served via Kiro / AWS CodeWhisperer.",
+      "context_length": 200000,
+      "max_completion_tokens": 32000
+    },
+    {
+      "id": "claude-sonnet-4-5-thinking",
+      "object": "model",
+      "created": 1735689600,
+      "owned_by": "kiro",
+      "type": "kiro",
+      "display_name": "Kiro Claude Sonnet 4.5 (Thinking)",
+      "description": "Claude Sonnet 4.5 with Kiro reasoning enabled (thinking_mode injected).",
+      "context_length": 200000,
+      "max_completion_tokens": 32000,
+      "thinking": {
+        "min": 1024,
+        "max": 32000,
+        "zero_allowed": true,
+        "dynamic_allowed": true
+      }
+    },
+    {
+      "id": "claude-sonnet-4-5-agentic",
+      "object": "model",
+      "created": 1735689600,
+      "owned_by": "kiro",
+      "type": "kiro",
+      "display_name": "Kiro Claude Sonnet 4.5 (Agentic)",
+      "description": "Claude Sonnet 4.5 with the chunked-write agentic system prompt.",
+      "context_length": 200000,
+      "max_completion_tokens": 32000
+    },
+    {
+      "id": "claude-sonnet-4-5-thinking-agentic",
+      "object": "model",
+      "created": 1735689600,
+      "owned_by": "kiro",
+      "type": "kiro",
+      "display_name": "Kiro Claude Sonnet 4.5 (Thinking + Agentic)",
+      "description": "Claude Sonnet 4.5 with both reasoning and the chunked-write agentic prompt.",
+      "context_length": 200000,
+      "max_completion_tokens": 32000,
+      "thinking": {
+        "min": 1024,
+        "max": 32000,
+        "zero_allowed": true,
+        "dynamic_allowed": true
+      }
+    },
+    {
+      "id": "claude-haiku-4-5",
+      "object": "model",
+      "created": 1735689600,
+      "owned_by": "kiro",
+      "type": "kiro",
+      "display_name": "Kiro Claude Haiku 4.5",
+      "description": "Anthropic Claude Haiku 4.5 served via Kiro / AWS CodeWhisperer.",
+      "context_length": 200000,
+      "max_completion_tokens": 32000
+    }
+  ],
   "antigravity": [
     {
       "id": "claude-opus-4-6-thinking",
@@ -2221,7 +2357,6 @@
         ]
       }
     }
-
   ],
   "xai": [
     {

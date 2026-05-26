@@ -31,6 +31,7 @@ import (
 	"github.com/router-for-me/CLIProxyAPI/v7/internal/interfaces"
 	"github.com/router-for-me/CLIProxyAPI/v7/internal/misc"
 	"github.com/router-for-me/CLIProxyAPI/v7/internal/registry"
+	"github.com/router-for-me/CLIProxyAPI/v7/internal/runtime/executor"
 	"github.com/router-for-me/CLIProxyAPI/v7/internal/util"
 	sdkAuth "github.com/router-for-me/CLIProxyAPI/v7/sdk/auth"
 	coreauth "github.com/router-for-me/CLIProxyAPI/v7/sdk/cliproxy/auth"
@@ -287,6 +288,18 @@ func (h *Handler) GetAuthFileModels(c *gin.Context) {
 	// Get models from registry
 	reg := registry.GetGlobalRegistry()
 	models := reg.GetModelsForClient(authID)
+	if len(models) == 0 && h.authManager != nil {
+		for _, auth := range h.authManager.List() {
+			if auth != nil && (auth.FileName == name || auth.ID == name) && isKiroProvider(auth.Provider) {
+				if live, _, err := executor.NewKiroExecutor(h.cfg).FetchKiroModels(c.Request.Context(), auth); err == nil && len(live) > 0 {
+					models = live
+				} else {
+					models = registry.GetKiroModels()
+				}
+				break
+			}
+		}
+	}
 
 	result := make([]gin.H, 0, len(models))
 	for _, m := range models {
@@ -381,8 +394,8 @@ func (h *Handler) buildAuthFileEntry(auth *coreauth.Auth) gin.H {
 		"id":             auth.ID,
 		"auth_index":     auth.Index,
 		"name":           name,
-		"type":           strings.TrimSpace(auth.Provider),
-		"provider":       strings.TrimSpace(auth.Provider),
+		"type":           normalizedAuthProvider(auth.Provider),
+		"provider":       normalizedAuthProvider(auth.Provider),
 		"label":          auth.Label,
 		"status":         auth.Status,
 		"status_message": auth.StatusMessage,
@@ -395,6 +408,12 @@ func (h *Handler) buildAuthFileEntry(auth *coreauth.Auth) gin.H {
 	entry["success"] = auth.Success
 	entry["failed"] = auth.Failed
 	entry["recent_requests"] = auth.RecentRequestsSnapshot(time.Now())
+	if isKiroProvider(auth.Provider) {
+		if snap := executor.NewKiroExecutor(h.cfg).CachedKiroQuota(auth.ID); snap != nil {
+			entry["quota"] = snap
+			entry["kiro_quota"] = snap
+		}
+	}
 	if email := authEmail(auth); email != "" {
 		entry["email"] = email
 	}

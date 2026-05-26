@@ -886,7 +886,7 @@ func (m *Manager) executeStreamWithModelPool(ctx context.Context, executor Provi
 			result := Result{AuthID: auth.ID, Provider: provider, Model: resultModel, Success: false, Error: rerr}
 			result.RetryAfter = retryAfterFromError(errStream)
 			m.MarkResult(ctx, result)
-			if isRequestInvalidError(errStream) {
+			if isRequestInvalidError(errStream) && !isKiroProvider(provider) {
 				return nil, errStream
 			}
 			lastErr = errStream
@@ -899,7 +899,7 @@ func (m *Manager) executeStreamWithModelPool(ctx context.Context, executor Provi
 				discardStreamChunks(streamResult.Chunks)
 				return nil, errCtx
 			}
-			if isRequestInvalidError(bootstrapErr) {
+			if isRequestInvalidError(bootstrapErr) && !isKiroProvider(provider) {
 				rerr := &Error{Message: bootstrapErr.Error()}
 				if se, ok := errors.AsType[cliproxyexecutor.StatusError](bootstrapErr); ok && se != nil {
 					rerr.HTTPStatus = se.StatusCode()
@@ -1230,6 +1230,7 @@ func (m *Manager) Execute(ctx context.Context, providers []string, req cliproxye
 	}
 
 	_, maxRetryCredentials, maxWait := m.retrySettings()
+	maxRetryCredentials = expandKiroRetryCredentials(normalized, maxRetryCredentials)
 
 	var lastErr error
 	for attempt := 0; ; attempt++ {
@@ -1265,6 +1266,7 @@ func (m *Manager) ExecuteCount(ctx context.Context, providers []string, req clip
 	}
 
 	_, maxRetryCredentials, maxWait := m.retrySettings()
+	maxRetryCredentials = expandKiroRetryCredentials(normalized, maxRetryCredentials)
 
 	var lastErr error
 	for attempt := 0; ; attempt++ {
@@ -1296,6 +1298,7 @@ func (m *Manager) ExecuteStream(ctx context.Context, providers []string, req cli
 	}
 
 	_, maxRetryCredentials, maxWait := m.retrySettings()
+	maxRetryCredentials = expandKiroRetryCredentials(normalized, maxRetryCredentials)
 
 	var lastErr error
 	for attempt := 0; ; attempt++ {
@@ -1404,7 +1407,7 @@ func (m *Manager) executeMixedOnce(ctx context.Context, providers []string, req 
 					result.RetryAfter = ra
 				}
 				m.MarkResult(execCtx, result)
-				if isRequestInvalidError(errExec) {
+				if isRequestInvalidError(errExec) && !isKiroProvider(provider) {
 					return cliproxyexecutor.Response{}, errExec
 				}
 				authErr = errExec
@@ -1414,7 +1417,7 @@ func (m *Manager) executeMixedOnce(ctx context.Context, providers []string, req 
 			return resp, nil
 		}
 		if authErr != nil {
-			if isRequestInvalidError(authErr) {
+			if isRequestInvalidError(authErr) && !isKiroProvider(provider) {
 				return cliproxyexecutor.Response{}, authErr
 			}
 			lastErr = authErr
@@ -1503,7 +1506,7 @@ func (m *Manager) executeCountMixedOnce(ctx context.Context, providers []string,
 					result.RetryAfter = ra
 				}
 				m.MarkResult(execCtx, result)
-				if isRequestInvalidError(errExec) {
+				if isRequestInvalidError(errExec) && !isKiroProvider(provider) {
 					return cliproxyexecutor.Response{}, errExec
 				}
 				authErr = errExec
@@ -1513,7 +1516,7 @@ func (m *Manager) executeCountMixedOnce(ctx context.Context, providers []string,
 			return resp, nil
 		}
 		if authErr != nil {
-			if isRequestInvalidError(authErr) {
+			if isRequestInvalidError(authErr) && !isKiroProvider(provider) {
 				return cliproxyexecutor.Response{}, authErr
 			}
 			lastErr = authErr
@@ -1579,6 +1582,9 @@ func (m *Manager) executeStreamMixedOnce(ctx context.Context, providers []string
 			}
 			m.MarkResult(execCtx, result)
 			lastErr = errPrepare
+			if isRequestInvalidError(errPrepare) && !isKiroProvider(provider) {
+				return nil, errPrepare
+			}
 			continue
 		}
 		streamResult, errStream := m.executeStreamWithModelPool(execCtx, executor, auth, provider, req, opts, routeModel, models, pooled)
@@ -1586,7 +1592,7 @@ func (m *Manager) executeStreamMixedOnce(ctx context.Context, providers []string
 			if errCtx := execCtx.Err(); errCtx != nil {
 				return nil, errCtx
 			}
-			if isRequestInvalidError(errStream) {
+			if isRequestInvalidError(errStream) && !isKiroProvider(provider) {
 				return nil, errStream
 			}
 			lastErr = errStream
@@ -2099,6 +2105,18 @@ func (m *Manager) retrySettings() (int, int, time.Duration) {
 		return 0, 0, 0
 	}
 	return int(m.requestRetry.Load()), int(m.maxRetryCredentials.Load()), time.Duration(m.maxRetryInterval.Load())
+}
+
+func expandKiroRetryCredentials(providers []string, current int) int {
+	if len(providers) != 1 || !isKiroProvider(providers[0]) {
+		return current
+	}
+	return 0
+}
+
+func isKiroProvider(provider string) bool {
+	provider = strings.ToLower(strings.TrimSpace(provider))
+	return provider == "kiro" || provider == "kiro-aws" || provider == "kiro-social"
 }
 
 func (m *Manager) closestCooldownWait(providers []string, model string, attempt int) (time.Duration, bool) {
@@ -3003,7 +3021,7 @@ func (m *Manager) pickNextLegacy(ctx context.Context, provider, model string, op
 	}
 	registryRef := registry.GetGlobalRegistry()
 	for _, candidate := range m.auths {
-		if candidate.Provider != provider || candidate.Disabled {
+		if schedulerProviderKey(candidate.Provider) != schedulerProviderKey(provider) || candidate.Disabled {
 			continue
 		}
 		if pinnedAuthID != "" && candidate.ID != pinnedAuthID {
@@ -3154,7 +3172,7 @@ func (m *Manager) pickNextMixedLegacy(ctx context.Context, providers []string, m
 		if disallowFreeAuth && isFreeCodexAuth(candidate) {
 			continue
 		}
-		providerKey := strings.TrimSpace(strings.ToLower(candidate.Provider))
+		providerKey := schedulerProviderKey(candidate.Provider)
 		if providerKey == "" {
 			continue
 		}
@@ -3247,7 +3265,7 @@ func (m *Manager) pickNextMixed(ctx context.Context, providers []string, model s
 			if candidate == nil || candidate.Disabled {
 				continue
 			}
-			if _, ok := providerSet[strings.TrimSpace(strings.ToLower(candidate.Provider))]; !ok {
+			if _, ok := providerSet[schedulerProviderKey(candidate.Provider)]; !ok {
 				continue
 			}
 			if _, used := tried[candidate.ID]; used {

@@ -928,7 +928,6 @@ func (h *BaseAPIHandler) getRequestDetailsWithOptions(modelName string, allowIma
 	if len(providers) == 0 && baseModel != resolvedModelName {
 		providers = util.GetProviderName(resolvedModelName)
 	}
-
 	if len(providers) == 0 {
 		return nil, "", &interfaces.ErrorMessage{StatusCode: http.StatusBadGateway, Error: fmt.Errorf("unknown provider for model %s", modelName)}
 	}

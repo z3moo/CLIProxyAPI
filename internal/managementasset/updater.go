@@ -190,6 +190,10 @@ func EnsureLatestManagementHTML(ctx context.Context, staticDir string, proxyURL 
 		return false
 	}
 	localPath := filepath.Join(staticDir, managementAssetName)
+	if _, err := os.Stat(localPath); err == nil {
+		log.Debug("management asset auto-update skipped: using local management.html")
+		return true
+	}
 
 	_, _, _ = sfGroup.Do(localPath, func() (interface{}, error) {
 		lastUpdateCheckMu.Lock()
