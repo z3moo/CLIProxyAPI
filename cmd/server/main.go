@@ -55,6 +55,12 @@ func init() {
 // It parses command-line flags, loads configuration, and starts the appropriate
 // service based on the provided flags (login, codex-login, or server mode).
 func main() {
+	// On Windows the binary is built with the windowsgui subsystem so it
+	// inherits no console. Attach to the parent shell's console (if any) so
+	// --help, --login output, and foreground server logs are visible. No-op
+	// from Explorer / non-Windows.
+	attachParentConsole()
+
 	fmt.Printf("CLIProxyAPI Version: %s, Commit: %s, BuiltAt: %s\n", buildinfo.Version, buildinfo.Commit, buildinfo.BuildDate)
 
 	// Command-line flags to control the application's behavior.

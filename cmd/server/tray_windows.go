@@ -5,15 +5,16 @@ package main
 import (
 	_ "embed"
 	"fmt"
+	"io"
+	"os"
 	"os/exec"
 	"sync"
-	"unsafe"
 
 	"github.com/getlantern/systray"
 	"github.com/router-for-me/CLIProxyAPI/v7/internal/cmd"
 	"github.com/router-for-me/CLIProxyAPI/v7/internal/config"
+	"github.com/router-for-me/CLIProxyAPI/v7/internal/logging"
 	log "github.com/sirupsen/logrus"
-	"golang.org/x/sys/windows"
 )
 
 //go:embed tray_icon.ico
@@ -23,72 +24,119 @@ var trayIconData []byte
 // so launching the exe with no arguments drops to the tray.
 func defaultTrayMode() bool { return true }
 
-const (
-	swHide = 0
-	swShow = 5
-)
+const ringCap = 2000
 
 var (
-	user32                 = windows.NewLazySystemDLL("user32.dll")
-	kernel32               = windows.NewLazySystemDLL("kernel32.dll")
-	procShowWindow         = user32.NewProc("ShowWindow")
-	procSetForeground      = user32.NewProc("SetForegroundWindow")
-	procGetConsole         = kernel32.NewProc("GetConsoleWindow")
-	procGetConsoleProcList = kernel32.NewProc("GetConsoleProcessList")
+	ringMu  sync.Mutex
+	ringBuf [][]byte
 
-	consoleMu      sync.Mutex
-	consoleVisible = true
+	trayMu        sync.Mutex
+	trayConsoleOn bool
+	trayConsoleFD io.Writer
+	mToggleRef    *systray.MenuItem
 )
 
-// ownsConsole returns true when this process is the sole attached process for
-// the console window — i.e. Windows allocated it for us at launch. When the
-// binary is started from an existing shell (PowerShell, cmd) the parent shell
-// is also attached and we must not hide that window.
-func ownsConsole() bool {
-	var dummy [4]uint32
-	n, _, _ := procGetConsoleProcList.Call(uintptr(unsafe.Pointer(&dummy[0])), uintptr(len(dummy)))
-	return n == 1
+// logRingHook captures every formatted log line into a bounded ring buffer
+// and, when the on-demand console is open, also writes it live to that
+// console. Independent of the global logrus output writer (which may be a
+// rotating file when LoggingToFile is enabled).
+type logRingHook struct{}
+
+func (logRingHook) Levels() []log.Level { return log.AllLevels }
+
+func (logRingHook) Fire(e *log.Entry) error {
+	fmtter := e.Logger.Formatter
+	if fmtter == nil {
+		fmtter = &logging.LogFormatter{}
+	}
+	line, err := fmtter.Format(e)
+	if err != nil {
+		return err
+	}
+	cp := make([]byte, len(line))
+	copy(cp, line)
+
+	ringMu.Lock()
+	if len(ringBuf) >= ringCap {
+		ringBuf = ringBuf[1:]
+	}
+	ringBuf = append(ringBuf, cp)
+	ringMu.Unlock()
+
+	trayMu.Lock()
+	w := trayConsoleFD
+	trayMu.Unlock()
+	if w != nil {
+		_, _ = w.Write(line)
+	}
+	return nil
 }
 
-func consoleWindow() windows.Handle {
-	hwnd, _, _ := procGetConsole.Call()
-	return windows.Handle(hwnd)
+func replayRingTo(w io.Writer) {
+	ringMu.Lock()
+	snap := make([][]byte, len(ringBuf))
+	copy(snap, ringBuf)
+	ringMu.Unlock()
+	for _, line := range snap {
+		_, _ = w.Write(line)
+	}
 }
 
-func setConsoleVisible(show bool) {
-	consoleMu.Lock()
-	defer consoleMu.Unlock()
-	hwnd := consoleWindow()
-	if hwnd == 0 {
+func showTrayConsole() {
+	trayMu.Lock()
+	if trayConsoleOn {
+		trayMu.Unlock()
+		setConsoleWindowVisible(true)
 		return
 	}
-	if show {
-		procShowWindow.Call(uintptr(hwnd), uintptr(swShow))
-		procSetForeground.Call(uintptr(hwnd))
-		consoleVisible = true
-	} else {
-		procShowWindow.Call(uintptr(hwnd), uintptr(swHide))
-		consoleVisible = false
+	trayMu.Unlock()
+
+	if !allocFreshConsole("CLIProxyAPI Console") {
+		log.Warn("tray: failed to allocate console")
+		return
 	}
+
+	// allocFreshConsole rebinds os.Stdout/os.Stderr to CONOUT$.
+	out := os.Stdout
+
+	trayMu.Lock()
+	trayConsoleFD = out
+	trayConsoleOn = true
+	if mToggleRef != nil {
+		mToggleRef.SetTitle("Hide Console")
+	}
+	trayMu.Unlock()
+
+	go replayRingTo(out)
 }
 
-func toggleConsole() {
-	consoleMu.Lock()
-	visible := consoleVisible
-	consoleMu.Unlock()
-	setConsoleVisible(!visible)
+func hideTrayConsole() {
+	trayMu.Lock()
+	if !trayConsoleOn {
+		trayMu.Unlock()
+		return
+	}
+	trayConsoleFD = nil
+	trayConsoleOn = false
+	if mToggleRef != nil {
+		mToggleRef.SetTitle("Show Console")
+	}
+	trayMu.Unlock()
+
+	freeAttachedConsole()
 }
 
 // runTrayMode starts the proxy server in the background and shows a system
-// tray icon. The console window is hidden on launch (when this process owns
-// it); left-click toggles it, right-click opens a menu with Show/Hide Console,
-// Open Management UI, and Exit.
+// tray icon. The console is never attached until the user picks Show Console.
+// Built with the windowsgui subsystem, this binary inherits no console, so
+// closing the parent terminal cannot kill the process.
 func runTrayMode(cfg *config.Config, configFilePath, password string) {
-	if ownsConsole() {
-		setConsoleVisible(false)
-	} else {
-		log.Info("tray: parent shell owns the console; not hiding it. Launch the .exe directly to start fully minimized.")
-	}
+	// If main attached to a parent shell so --help/login flows work, detach
+	// now: tray mode owns its own console window from this point on.
+	freeAttachedConsole()
+
+	log.AddHook(logRingHook{})
+	onConsoleCloseRequested = func() { hideTrayConsole() }
 
 	cancel, done := cmd.StartServiceBackground(cfg, configFilePath, password)
 
@@ -102,18 +150,22 @@ func runTrayMode(cfg *config.Config, configFilePath, password string) {
 		systray.AddSeparator()
 		mQuit := systray.AddMenuItem("Exit", "Stop the proxy and exit")
 
+		trayMu.Lock()
+		mToggleRef = mToggle
+		trayMu.Unlock()
+
 		go func() {
 			for {
 				select {
 				case <-mToggle.ClickedCh:
-					toggleConsole()
-					consoleMu.Lock()
-					if consoleVisible {
-						mToggle.SetTitle("Hide Console")
+					trayMu.Lock()
+					on := trayConsoleOn
+					trayMu.Unlock()
+					if on {
+						hideTrayConsole()
 					} else {
-						mToggle.SetTitle("Show Console")
+						showTrayConsole()
 					}
-					consoleMu.Unlock()
 				case <-mOpen.ClickedCh:
 					url := fmt.Sprintf("http://127.0.0.1:%d/management", cfg.Port)
 					if err := exec.Command("rundll32", "url.dll,FileProtocolHandler", url).Start(); err != nil {
@@ -128,7 +180,7 @@ func runTrayMode(cfg *config.Config, configFilePath, password string) {
 	}
 
 	onExit := func() {
-		setConsoleVisible(true)
+		hideTrayConsole()
 		cancel()
 		<-done
 	}
